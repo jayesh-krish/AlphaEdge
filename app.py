@@ -141,7 +141,12 @@ if run_mode == "Test Run (5 Stocks)":
 else:
     active_universe = full_universe
 
+# --- (Keep everything above this line the same) ---
 st.sidebar.info(f"Loaded {len(full_universe)} tickers from asset data layer.")
+
+# 🧠 NEW: Initialize Session State Memory
+if 'scan_results' not in st.session_state:
+    st.session_state['scan_results'] = pd.DataFrame()
 
 # Execution Trigger Hub
 if st.button("🚀 Execute System Scan", type="primary"):
@@ -149,76 +154,73 @@ if st.button("🚀 Execute System Scan", type="primary"):
         st.error("Universe contains 0 symbols. Please verify your NSE.json placement.")
     else:
         with st.spinner("Processing technical engines & scraping Yahoo market data..."):
-            df_final = run_web_scanner(
+            # Save the results directly into memory
+            st.session_state['scan_results'] = run_web_scanner(
                 active_universe, 
                 swing_rsi_min, swing_rsi_max, 
                 position_rsi_min, position_rsi_max
             )
-            
-        if not df_final.empty:
-            # Metrics Row display
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Total Tracked Assets", len(df_final))
-            m2.metric("Active Swing/Position Setups", len(df_final[df_final["Mode"] != "💤 Idle"]))
-            m3.metric("Scan Competed at", datetime.now().strftime("%H:%M:%S"))
-            
-            # Interactive Filter Checkboxes
-            st.subheader("📊 Core Trading Engine Dashboard")
-            show_only_active = st.checkbox("Filter: Show Active Triggers Only", value=False)
-            
-            if show_only_active:
-                display_df = df_final[df_final["Mode"] != "💤 Idle"]
-            else:
-                display_df = df_final
-                
-            # Render interactive dataframe
-            st.dataframe(
-                display_df,
-                use_container_width=True,
-                column_config={
-                    "Price": st.column_config.NumberColumn(format="₹%.2f"),
-                    "RSI": st.column_config.NumberColumn(format="%.1f")
-                },
-                hide_index=True
-            )
-            
-            # Data Export Utility
-            st.markdown("---")
-            col1, col2 = st.columns(2)
-            with col1:
-                csv_data = display_df.to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    label="📥 Export Report to CSV",
-                    data=csv_data,
-                    file_name=f"alphaedge_scan_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv"
-                )
 
-            # 📈 NEW: Interactive Charting Section
-            st.markdown("---")
-            st.subheader("📈 Visual Analysis Viewer")
+# 🖥️ DISPLAY LOGIC (Now lives OUTSIDE the button click)
+df_final = st.session_state['scan_results']
+
+if not df_final.empty:
+    # Metrics Row display
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Total Tracked Assets", len(df_final))
+    m2.metric("Active Swing/Position Setups", len(df_final[df_final["Mode"] != "💤 Idle"]))
+    m3.metric("Scan Competed at", datetime.now().strftime("%H:%M:%S"))
+    
+    # Interactive Filter Checkboxes
+    st.subheader("📊 Core Trading Engine Dashboard")
+    show_only_active = st.checkbox("Filter: Show Active Triggers Only", value=False)
+    
+    if show_only_active:
+        display_df = df_final[df_final["Mode"] != "💤 Idle"]
+    else:
+        display_df = df_final
+        
+    # Render interactive dataframe
+    st.dataframe(
+        display_df,
+        use_container_width=True,
+        column_config={
+            "Price": st.column_config.NumberColumn(format="₹%.2f"),
+            "RSI": st.column_config.NumberColumn(format="%.1f")
+        },
+        hide_index=True
+    )
+    
+    # Data Export Utility
+    st.markdown("---")
+    col1, col2 = st.columns(2)
+    with col1:
+        csv_data = display_df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Export Report to CSV",
+            data=csv_data,
+            file_name=f"alphaedge_scan_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv"
+        )
+
+    # 📈 Interactive Charting Section
+    st.markdown("---")
+    st.subheader("📈 Visual Analysis Viewer")
+    
+    selected_ticker = st.selectbox(
+        "Select a ticker to view its chart:", 
+        display_df["Ticker"].tolist()
+    )
+    
+    if selected_ticker:
+        with st.spinner(f"Loading chart data for {selected_ticker}..."):
+            chart_data = MarketData().get_history(selected_ticker, period="6mo", interval="1d")
             
-            # Let the user pick a stock from the scan results
-            if not display_df.empty:
-                selected_ticker = st.selectbox(
-                    "Select a ticker to view its chart:", 
-                    display_df["Ticker"].tolist()
-                )
+            if not chart_data.empty:
+                chart_data['EMA_20'] = chart_data['Close'].ewm(span=20, adjust=False).mean()
+                chart_data['EMA_50'] = chart_data['Close'].ewm(span=50, adjust=False).mean()
                 
-                if selected_ticker:
-                    with st.spinner(f"Loading chart data for {selected_ticker}..."):
-                        # Fetch the data again using the market data engine
-                        chart_data = MarketData().get_history(selected_ticker, period="6mo", interval="1d")
-                        
-                        if not chart_data.empty:
-                            # Calculate the moving averages just for the chart
-                            chart_data['EMA_20'] = chart_data['Close'].ewm(span=20, adjust=False).mean()
-                            chart_data['EMA_50'] = chart_data['Close'].ewm(span=50, adjust=False).mean()
-                            
-                            # Streamlit native line chart (interactive by default!)
-                            st.line_chart(chart_data[['Close', 'EMA_20', 'EMA_50']])
-                            st.caption(f"Showing 6-Month Daily Close with 20 & 50 EMAs for {selected_ticker}")
-                        else:
-                            st.warning("Could not load chart data for this symbol.")
-        else:
-            st.warning("Scan executed but returned no structured datasets.")
+                st.line_chart(chart_data[['Close', 'EMA_20', 'EMA_50']])
+                st.caption(f"Showing 6-Month Daily Close with 20 & 50 EMAs for {selected_ticker}")
+            else:
+                st.warning("Could not load chart data for this symbol.")
