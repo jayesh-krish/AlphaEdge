@@ -183,12 +183,42 @@ if st.button("🚀 Execute System Scan", type="primary"):
             )
             
             # Data Export Utility
-            csv_data = display_df.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="📥 Export Report to CSV",
-                data=csv_data,
-                file_name=f"alphaedge_scan_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv"
-            )
+            st.markdown("---")
+            col1, col2 = st.columns(2)
+            with col1:
+                csv_data = display_df.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="📥 Export Report to CSV",
+                    data=csv_data,
+                    file_name=f"alphaedge_scan_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv"
+                )
+
+            # 📈 NEW: Interactive Charting Section
+            st.markdown("---")
+            st.subheader("📈 Visual Analysis Viewer")
+            
+            # Let the user pick a stock from the scan results
+            if not display_df.empty:
+                selected_ticker = st.selectbox(
+                    "Select a ticker to view its chart:", 
+                    display_df["Ticker"].tolist()
+                )
+                
+                if selected_ticker:
+                    with st.spinner(f"Loading chart data for {selected_ticker}..."):
+                        # Fetch the data again using the market data engine
+                        chart_data = MarketData().get_history(selected_ticker, period="6mo", interval="1d")
+                        
+                        if not chart_data.empty:
+                            # Calculate the moving averages just for the chart
+                            chart_data['EMA_20'] = chart_data['Close'].ewm(span=20, adjust=False).mean()
+                            chart_data['EMA_50'] = chart_data['Close'].ewm(span=50, adjust=False).mean()
+                            
+                            # Streamlit native line chart (interactive by default!)
+                            st.line_chart(chart_data[['Close', 'EMA_20', 'EMA_50']])
+                            st.caption(f"Showing 6-Month Daily Close with 20 & 50 EMAs for {selected_ticker}")
+                        else:
+                            st.warning("Could not load chart data for this symbol.")
         else:
             st.warning("Scan executed but returned no structured datasets.")
